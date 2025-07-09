@@ -17,10 +17,11 @@ import {
 } from "@/components/ui/sidebar";
 import { UserProfile } from "@/components/user-profile";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "convex/react";
 import { Clock, Phone, Search, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useState } from "react";
 
@@ -33,18 +34,21 @@ export function CallHistorySidebar({
   activeCallId,
   onCallSelect,
 }: CallHistorySidebarProps) {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
-  const calls = useQuery(api.calls.getCalls);
-  const deleteCall = useMutation(api.calls.deleteCall);
+  const calls = useQuery(api.calls.list);
+  const deleteCall = useMutation(api.calls.remove);
   const { toast } = useToast();
 
   const filteredCalls =
-    calls?.filter((call) =>
+    calls?.filter((call: Doc<"calls">) =>
       call.title.toLowerCase().includes(searchQuery.toLowerCase())
     ) || [];
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case "draft":
+        return "bg-blue-500/10 text-blue-600 border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20";
       case "recording":
         return "bg-red-500/10 text-red-600 border-red-500/20 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20";
       case "processing":
@@ -58,6 +62,11 @@ export function CallHistorySidebar({
 
   const handleDeleteCall = async (callId: Id<"calls">, e: React.MouseEvent) => {
     e.stopPropagation();
+
+    if (activeCallId === callId) {
+      router.push("/");
+    }
+
     try {
       await deleteCall({ id: callId });
       toast({
@@ -117,7 +126,7 @@ export function CallHistorySidebar({
 
           <SidebarGroupContent>
             <SidebarMenu>
-              {filteredCalls.map((call) => (
+              {filteredCalls.map((call: Doc<"calls">) => (
                 <SidebarMenuItem key={call._id}>
                   <SidebarMenuButton
                     onClick={() => onCallSelect(call._id)}
@@ -140,8 +149,8 @@ export function CallHistorySidebar({
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Clock className="w-3 h-3 flex-shrink-0" />
                         <span className="truncate">
-                          {new Date(call.createdAt).toLocaleDateString()} at{" "}
-                          {new Date(call.createdAt).toLocaleTimeString([], {
+                          {new Date(call._creationTime).toLocaleDateString()} at{" "}
+                          {new Date(call._creationTime).toLocaleTimeString([], {
                             hour: "2-digit",
                             minute: "2-digit",
                           })}

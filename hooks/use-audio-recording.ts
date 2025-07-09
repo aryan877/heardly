@@ -1,115 +1,138 @@
-"use client"
+"use client";
 
-import { useState, useRef, useCallback } from "react"
+import { StreamingTranscriber } from "assemblyai";
+import { useCallback, useRef, useState } from "react";
 
 export interface AudioRecordingHook {
-  isRecording: boolean
-  transcript: string
-  audioBlob: Blob | null
-  startRecording: () => Promise<void>
-  stopRecording: () => void
-  duration: number
+  isRecording: boolean;
+  transcript: string;
+  startRecording: () => Promise<void>;
+  stopRecording: () => void;
+  duration: number;
 }
 
-export const useAudioRecording = (onTranscriptUpdate?: (text: string) => void): AudioRecordingHook => {
-  const [isRecording, setIsRecording] = useState(false)
-  const [transcript, setTranscript] = useState("")
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
-  const [duration, setDuration] = useState(0)
+interface UseAudioRecordingOptions {
+  onRecordingStop?: (transcript: string) => void;
+}
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
-  const durationIntervalRef = useRef<NodeJS.Timeout>()
-  const transcriptIntervalRef = useRef<NodeJS.Timeout>()
+export const useAudioRecording = (
+  options: UseAudioRecordingOptions = {}
+): AudioRecordingHook => {
+  const { onRecordingStop } = options;
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [duration, setDuration] = useState(0);
 
-  // Simulated transcription phrases for demo
-  const samplePhrases = [
-    "Hello, thank you for joining the call today.",
-    "Let's start by reviewing the agenda for this meeting.",
-    "I think we should focus on the key deliverables first.",
-    "Can you walk us through the current progress?",
-    "That's a great point, let me make a note of that.",
-    "We'll need to follow up on this action item.",
-    "I agree with that approach, it makes sense.",
-    "Let's schedule a follow-up meeting next week.",
-    "Thank you everyone for your time today.",
-    "I'll send out the meeting notes shortly.",
-  ]
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const transcriberRef = useRef<StreamingTranscriber | null>(null);
+  const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const fullTranscriptRef = useRef<string>("");
+
+  const stopTranscriptionService = useCallback(() => {
+    if (transcriberRef.current) {
+      transcriberRef.current.close();
+      transcriberRef.current = null;
+    }
+  }, []);
 
   const startRecording = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 44100,
-        },
-      })
-
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      })
-
-      audioChunksRef.current = []
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
-        }
-      }
-
-      mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" })
-        setAudioBlob(audioBlob)
-        stream.getTracks().forEach((track) => track.stop())
-      }
-
-      mediaRecorderRef.current.start(1000) // Collect data every second
-      setIsRecording(true)
-      setDuration(0)
-      setTranscript("")
-
-      // Start duration counter
-      durationIntervalRef.current = setInterval(() => {
-        setDuration((prev) => prev + 1)
-      }, 1000)
-
-      // Simulate real-time transcription for demo
-      transcriptIntervalRef.current = setInterval(() => {
-        const randomPhrase = samplePhrases[Math.floor(Math.random() * samplePhrases.length)]
-        setTranscript((prev) => {
-          const newTranscript = prev + (prev ? " " : "") + randomPhrase
-          onTranscriptUpdate?.(randomPhrase)
-          return newTranscript
-        })
-      }, 3000)
-    } catch (error) {
-      console.error("Error starting recording:", error)
-      throw error
+    if (isRecording) {
+      console.warn("Recording is already in progress.");
+      return;
     }
-  }, [onTranscriptUpdate])
+
+    setTranscript("");
+    fullTranscriptRef.current = "";
+
+    try {
+      const response = await fetch("/api/assemblyai-token");
+      const data = await response.json();
+
+      if (!data.token) {
+        throw new Error("Failed to get AssemblyAI token");
+      }
+
+      const transcriber = new StreamingTranscriber({
+        token: data.token,
+        sampleRate: 16000,
+      });
+
+      transcriber.on("open", ({ id, expires_at }) => {
+        console.log(
+          `AssemblyAI session opened with ID: ${id}`,
+          "Expires at:",
+          expires_at
+        );
+      });
+
+      transcriber.on("error", (error: Error) => {
+        console.error("AssemblyAI Error:", error);
+        stopTranscriptionService();
+      });
+
+      transcriber.on("close", (code: number, reason: string) => {
+        console.log("AssemblyAI session closed:", code, reason);
+      });
+
+      transcriber.on("turn", ({ transcript }) => {
+        if (transcript) {
+          fullTranscriptRef.current = transcript;
+          setTranscript(transcript);
+        }
+      });
+
+      await transcriber.connect();
+      transcriberRef.current = transcriber;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+
+      mediaRecorderRef.current.ondataavailable = async (event) => {
+        if (event.data.size > 0 && transcriberRef.current) {
+          const buffer = await event.data.arrayBuffer();
+          transcriber.sendAudio(buffer);
+        }
+      };
+
+      mediaRecorderRef.current.start(250);
+
+      setIsRecording(true);
+      setDuration(0);
+
+      durationIntervalRef.current = setInterval(() => {
+        setDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (error) {
+      console.error("Error starting recording:", error);
+      stopTranscriptionService();
+      throw error;
+    }
+  }, [isRecording, stopTranscriptionService]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream
+        .getTracks()
+        .forEach((track) => track.stop());
+      setIsRecording(false);
     }
+
+    stopTranscriptionService();
 
     if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current)
+      clearInterval(durationIntervalRef.current);
+      durationIntervalRef.current = null;
     }
 
-    if (transcriptIntervalRef.current) {
-      clearInterval(transcriptIntervalRef.current)
-    }
-  }, [isRecording])
+    onRecordingStop?.(fullTranscriptRef.current);
+  }, [isRecording, stopTranscriptionService, onRecordingStop]);
 
   return {
     isRecording,
     transcript,
-    audioBlob,
     duration,
     startRecording,
     stopRecording,
-  }
-}
+  };
+};

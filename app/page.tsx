@@ -2,7 +2,6 @@
 
 import { AuthSignIn } from "@/components/auth-signin";
 import { CallHistorySidebar } from "@/components/call-history-sidebar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,52 +11,30 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SidebarInset } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
-import { useConvexAuth, useQuery } from "convex/react";
-import {
-  Calendar,
-  Clock,
-  FileText,
-  Mic,
-  MicOff,
-  Phone,
-  Play,
-  Plus,
-  Square,
-} from "lucide-react";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { Calendar, Clock, FileText, Phone, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function Home() {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
   const [activeCallId, setActiveCallId] = useState<Id<"calls"> | null>(null);
+  const router = useRouter();
 
   // Check authentication status first
   const { isLoading: authLoading, isAuthenticated } = useConvexAuth();
 
   // Only run the query if authenticated
-  const calls = useQuery(
-    api.calls.getCalls,
-    isAuthenticated ? undefined : "skip"
-  );
+  const calls = useQuery(api.calls.list, isAuthenticated ? undefined : "skip");
+
+  const createCall = useMutation(api.calls.create);
+
+  const isLoading = authLoading || calls === undefined;
 
   // Show loading while checking authentication
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-current border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p>Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // If not authenticated, the middleware should have redirected.
-  // This is a fallback.
-  if (!isAuthenticated) {
+  if (!authLoading && !isAuthenticated) {
     return (
       <div className="flex items-center justify-center h-full">
         <AuthSignIn />
@@ -65,49 +42,23 @@ export default function Home() {
     );
   }
 
-  // If calls query is still loading after auth is checked
-  if (calls === undefined) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-current border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p>Loading calls...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const handleStartRecording = () => {
-    setIsRecording(true);
-    setIsPaused(false);
-    // Start recording logic here
-  };
-
-  const handleStopRecording = () => {
-    setIsRecording(false);
-    setIsPaused(false);
-    setRecordingTime(0);
-    // Stop recording logic here
-  };
-
-  const handlePauseRecording = () => {
-    setIsPaused(!isPaused);
-    // Pause/resume recording logic here
-  };
-
   const handleCallSelect = (callId: Id<"calls">) => {
     setActiveCallId(callId);
+    router.push(`/call/${callId}`);
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
+  const handleNewCall = async () => {
+    try {
+      const callId = await createCall({
+        title: `Call ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+      });
+      router.push(`/call/${callId}`);
+    } catch (error) {
+      console.error("Failed to create call:", error);
+    }
   };
 
-  const recentCalls = calls.slice(0, 3);
+  const recentCalls = calls?.slice(0, 5) ?? [];
 
   return (
     <>
@@ -129,73 +80,27 @@ export default function Home() {
               </p>
             </div>
 
-            {/* Recording Card */}
+            {/* Quick Actions */}
             <Card className="mb-8">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Mic className="h-5 w-5" />
-                  Voice Recording
-                </CardTitle>
+                <CardTitle>Quick Actions</CardTitle>
                 <CardDescription>
-                  Start recording your conversation for transcription and
-                  analysis
+                  Start a new call recording session
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-col items-center space-y-6">
-                  {/* Recording Controls */}
-                  <div className="flex items-center space-x-4">
-                    {!isRecording ? (
-                      <Button
-                        onClick={handleStartRecording}
-                        size="lg"
-                        className="h-16 w-16 rounded-full bg-red-500 hover:bg-red-600 text-white"
-                      >
-                        <Mic className="h-6 w-6" />
-                      </Button>
-                    ) : (
-                      <div className="flex items-center space-x-3">
-                        <Button
-                          onClick={handlePauseRecording}
-                          size="lg"
-                          variant="outline"
-                          className="h-12 w-12 rounded-full"
-                        >
-                          {isPaused ? (
-                            <Play className="h-5 w-5" />
-                          ) : (
-                            <MicOff className="h-5 w-s" />
-                          )}
-                        </Button>
-                        <Button
-                          onClick={handleStopRecording}
-                          size="lg"
-                          className="h-12 w-12 rounded-full bg-gray-500 hover:bg-gray-600 text-white"
-                        >
-                          <Square className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Recording Status */}
-                  <div className="text-center">
-                    {isRecording ? (
-                      <div className="space-y-2">
-                        <Badge variant={isPaused ? "secondary" : "destructive"}>
-                          {isPaused ? "Paused" : "Recording"}
-                        </Badge>
-                        <div className="text-2xl font-mono text-foreground">
-                          {formatTime(recordingTime)}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-muted-foreground">
-                        Click the microphone to start recording
-                      </p>
-                    )}
-                  </div>
-                </div>
+                {isLoading ? (
+                  <Skeleton className="h-12 w-full sm:w-48" />
+                ) : (
+                  <Button
+                    onClick={handleNewCall}
+                    size="lg"
+                    className="w-full sm:w-auto"
+                  >
+                    <Plus className="h-5 w-5 mr-2" />
+                    Start New Call
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -207,27 +112,42 @@ export default function Home() {
                     <Phone className="h-5 w-5" />
                     Recent Calls
                   </CardTitle>
-                  <Button variant="outline" size="sm">
-                    <Plus className="h-4 w-4 mr-2" />
-                    View All
-                  </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                {recentCalls.length === 0 ? (
+                {isLoading ? (
+                  <ul className="space-y-4">
+                    {[...Array(3)].map((_, i) => (
+                      <li
+                        key={i}
+                        className="flex items-center justify-between p-3"
+                      >
+                        <div className="flex items-center space-x-4">
+                          <Skeleton className="h-10 w-10 rounded-full" />
+                          <div className="space-y-2">
+                            <Skeleton className="h-4 w-48" />
+                            <Skeleton className="h-4 w-64" />
+                          </div>
+                        </div>
+                        <Skeleton className="h-8 w-16" />
+                      </li>
+                    ))}
+                  </ul>
+                ) : recentCalls.length === 0 ? (
                   <div className="text-center py-8">
                     <Phone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground mb-2">No calls yet</p>
                     <p className="text-sm text-muted-foreground">
-                      Start recording to see your calls here
+                      Start your first call to see it here
                     </p>
                   </div>
                 ) : (
                   <ul className="space-y-4">
-                    {recentCalls.map((call) => (
+                    {recentCalls.map((call: Doc<"calls">) => (
                       <li
                         key={call._id}
-                        className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                        className="flex items-center justify-between p-3 bg-muted rounded-lg hover:bg-muted/80 transition-colors cursor-pointer"
+                        onClick={() => handleCallSelect(call._id)}
                       >
                         <div className="flex items-center space-x-4">
                           <div className="p-2 bg-primary/10 rounded-full">
@@ -235,7 +155,7 @@ export default function Home() {
                           </div>
                           <div>
                             <p className="font-medium text-foreground">
-                              {call.summary || "Call Summary"}
+                              {call.title}
                             </p>
                             <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                               <Calendar className="h-4 w-4" />
@@ -253,11 +173,7 @@ export default function Home() {
                             </div>
                           </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleCallSelect(call._id)}
-                        >
+                        <Button variant="ghost" size="sm">
                           View
                         </Button>
                       </li>

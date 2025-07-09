@@ -1,182 +1,119 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
+import { mutation, query, QueryCtx } from "./_generated/server";
 
-export const createCall = mutation({
+// Helper function to get current user
+async function getCurrentUser(ctx: QueryCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Unauthorized");
+  }
+  return identity;
+}
+
+// Helper function to ensure user owns call
+async function ensureCallOwnership(ctx: QueryCtx, callId: Id<"calls">) {
+  const identity = await getCurrentUser(ctx);
+  const call = await ctx.db.get(callId);
+
+  if (!call) {
+    throw new Error("Call not found");
+  }
+
+  if (call.userId !== identity.subject) {
+    throw new Error("Forbidden");
+  }
+
+  return call;
+}
+
+export const create = mutation({
   args: {
     title: v.string(),
   },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
+  handler: async (ctx, { title }) => {
+    const identity = await getCurrentUser(ctx);
 
     return await ctx.db.insert("calls", {
-      title: args.title,
-      status: "recording",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      title,
+      status: "draft", // Changed from "recording" to "draft"
       userId: identity.subject,
     });
   },
 });
 
-export const updateCall = mutation({
+export const update = mutation({
   args: {
     id: v.id("calls"),
-    audioStorageId: v.optional(v.id("_storage")),
     transcript: v.optional(v.string()),
     summary: v.optional(v.string()),
     duration: v.optional(v.number()),
     status: v.optional(
       v.union(
+        v.literal("draft"),
         v.literal("recording"),
         v.literal("processing"),
         v.literal("completed")
       )
     ),
   },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
+  handler: async (ctx, { id, ...updates }) => {
+    await ensureCallOwnership(ctx, id);
 
-    const existingCall = await ctx.db.get(args.id);
-    if (!existingCall) {
-      throw new Error("Call not found");
-    }
+    // Only include defined fields in the update
+    const updateData = Object.fromEntries(
+      Object.entries(updates).filter(([_, value]) => value !== undefined)
+    );
 
-    if (existingCall.userId !== identity.subject) {
-      throw new Error("Forbidden");
+    if (Object.keys(updateData).length > 0) {
+      await ctx.db.patch(id, updateData);
     }
-
-    const updateData: any = {
-      updatedAt: Date.now(),
-    };
-
-    if (args.audioStorageId !== undefined) {
-      updateData.audioStorageId = args.audioStorageId;
-    }
-    if (args.transcript !== undefined) {
-      updateData.transcript = args.transcript;
-    }
-    if (args.summary !== undefined) {
-      updateData.summary = args.summary;
-    }
-    if (args.duration !== undefined) {
-      updateData.duration = args.duration;
-    }
-    if (args.status !== undefined) {
-      updateData.status = args.status;
-    }
-
-    await ctx.db.patch(args.id, updateData);
   },
 });
 
-export const deleteCall = mutation({
+export const remove = mutation({
   args: {
     id: v.id("calls"),
   },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
-
-    const existingCall = await ctx.db.get(args.id);
-    if (!existingCall) {
-      throw new Error("Call not found");
-    }
-
-    if (existingCall.userId !== identity.subject) {
-      throw new Error("Forbidden");
-    }
-
-    await ctx.db.delete(args.id);
+  handler: async (ctx, { id }) => {
+    await ensureCallOwnership(ctx, id);
+    await ctx.db.delete(id);
   },
 });
 
-export const getCall = query({
+export const get = query({
   args: {
     id: v.id("calls"),
   },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
-
-    const call = await ctx.db.get(args.id);
-    if (!call) {
-      return null;
-    }
-
-    if (call.userId !== identity.subject) {
-      throw new Error("Forbidden");
-    }
-
+  handler: async (ctx, { id }) => {
+    const call = await ensureCallOwnership(ctx, id);
     return call;
   },
 });
 
-export const getCalls = query({
+export const list = query({
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
+    const identity = await getCurrentUser(ctx);
 
     return await ctx.db
       .query("calls")
-      .withIndex("by_user_created_at", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
       .order("desc")
       .collect();
   },
 });
 
-export const getRecentCalls = query({
+export const recent = query({
   args: {
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
-
-    const limit = args.limit ?? 10;
+  handler: async (ctx, { limit = 10 }) => {
+    const identity = await getCurrentUser(ctx);
 
     return await ctx.db
       .query("calls")
-      .withIndex("by_user_created_at", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
       .order("desc")
       .take(limit);
-  },
-});
-
-export const generateUploadUrl = mutation({
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
-
-    return await ctx.storage.generateUploadUrl();
-  },
-});
-
-export const getFileUrl = query({
-  args: {
-    storageId: v.id("_storage"),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
-
-    return await ctx.storage.getUrl(args.storageId);
   },
 });
