@@ -8,16 +8,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Mic, Pause, Play, StopCircle } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { AudioDevice } from "@/hooks/use-audio-recording";
+import { Headphones, Mic, Pause, Play, StopCircle } from "lucide-react";
 
 interface RecordingCardProps {
   callStatus: "draft" | "recording" | "processing" | "completed";
   isRecording: boolean;
   duration: number;
   transcript: string;
+  availableDevices: AudioDevice[];
+  selectedDeviceId: string;
   onStartRecording: () => void;
   onStopRecording: () => void;
   onPauseRecording: () => void;
+  onDeviceSelect: (deviceId: string) => void;
   isPaused: boolean;
 }
 
@@ -26,9 +37,12 @@ export function RecordingCard({
   isRecording,
   duration,
   transcript,
+  availableDevices,
+  selectedDeviceId,
   onStartRecording,
   onStopRecording,
   onPauseRecording,
+  onDeviceSelect,
   isPaused,
 }: RecordingCardProps) {
   const formatTime = (seconds: number) => {
@@ -53,11 +67,35 @@ export function RecordingCard({
       <CardContent>
         {callStatus === "draft" && !isRecording && (
           <div className="flex flex-col items-center gap-4">
-            <p className="text-muted-foreground">
+            {/* Audio Device Selector */}
+            <div className="w-full max-w-md space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Headphones className="h-4 w-4" />
+                Audio Input Device
+              </label>
+              <Select value={selectedDeviceId} onValueChange={onDeviceSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select microphone..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableDevices.map((device) => (
+                    <SelectItem key={device.deviceId} value={device.deviceId}>
+                      {device.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Supports headphones, earbuds, external mics, and built-in
+                microphones
+              </p>
+            </div>
+
+            <p className="text-muted-foreground text-center">
               Click the button to start recording your conversation for
               transcription and analysis.
             </p>
-            <Button onClick={onStartRecording}>
+            <Button onClick={onStartRecording} disabled={!selectedDeviceId}>
               <Mic className="h-4 w-4 mr-2" />
               Start Recording
             </Button>
@@ -66,6 +104,15 @@ export function RecordingCard({
 
         {isRecording && (
           <div className="flex flex-col items-center gap-6">
+            {/* Show selected device info */}
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                <Headphones className="h-3 w-3" />
+                {availableDevices.find((d) => d.deviceId === selectedDeviceId)
+                  ?.label || "Unknown Device"}
+              </p>
+            </div>
+
             <div className="flex items-center gap-6">
               <Button
                 variant={isPaused ? "outline" : "secondary"}
@@ -81,7 +128,7 @@ export function RecordingCard({
               </Button>
               <div className="text-center">
                 <p className="text-sm text-red-500 font-semibold mb-1">
-                  Recording
+                  {isPaused ? "Paused" : "Recording"}
                 </p>
                 <p className="text-4xl font-bold tracking-wider">
                   {formatTime(duration)}
@@ -96,9 +143,13 @@ export function RecordingCard({
                 <StopCircle className="h-6 w-6" />
               </Button>
             </div>
-            {transcript && (
+            {transcript ? (
               <div className="w-full text-center text-muted-foreground p-4 bg-muted rounded-md">
                 <p className="leading-relaxed">{transcript}</p>
+              </div>
+            ) : (
+              <div className="w-full text-center text-muted-foreground p-4 bg-muted rounded-md">
+                <p className="italic">Listening...</p>
               </div>
             )}
           </div>

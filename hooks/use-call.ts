@@ -22,6 +22,9 @@ export const useCall = (callId: Id<"calls">) => {
     isPaused,
     pauseRecording,
     resumeRecording,
+    availableDevices,
+    selectedDeviceId,
+    setSelectedDevice,
   } = useAudioRecording({
     onRecordingStop: useCallback(
       (transcript: string, duration: number) => {
@@ -72,6 +75,9 @@ export const useCall = (callId: Id<"calls">) => {
     duration,
     summary: summary || call?.summary,
     isGeneratingSummary: isGenerating,
+    availableDevices,
+    selectedDeviceId,
+    setSelectedDevice,
     handleStartRecording,
     handleStopRecording,
     handleGenerateSummary,

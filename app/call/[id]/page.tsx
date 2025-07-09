@@ -43,6 +43,9 @@ export default function CallPage({ params }: CallPageProps) {
     duration,
     summary,
     isGeneratingSummary,
+    availableDevices,
+    selectedDeviceId,
+    setSelectedDevice,
     handleStartRecording,
     handleStopRecording,
     handleGenerateSummary,
@@ -158,9 +161,12 @@ export default function CallPage({ params }: CallPageProps) {
               isRecording={isRecording}
               duration={duration}
               transcript={displayTranscript}
+              availableDevices={availableDevices}
+              selectedDeviceId={selectedDeviceId}
               onStartRecording={handleStartRecording}
               onStopRecording={handleStopRecording}
               onPauseRecording={handleTogglePause}
+              onDeviceSelect={setSelectedDevice}
               isPaused={isPaused}
             />
 
