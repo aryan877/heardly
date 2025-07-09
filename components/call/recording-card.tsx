@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AudioDevice } from "@/hooks/use-audio-recording";
+import { AudioDevice } from "@/hooks/use-audio-devices";
 import { Headphones, Mic, Pause, Play, StopCircle } from "lucide-react";
 
 interface RecordingCardProps {

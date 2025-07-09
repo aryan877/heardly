@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { useCallback, useEffect } from "react";
 import { useAISummarization } from "./use-ai-summarization";
+import { useAudioDevices } from "./use-audio-devices";
 import { useAudioRecording } from "./use-audio-recording";
 
 export const useCall = (callId: Id<"calls">) => {
@@ -12,6 +13,8 @@ export const useCall = (callId: Id<"calls">) => {
   const updateCall = useMutation(api.calls.update);
 
   const { summary, isGenerating, generateSummary } = useAISummarization();
+  const { availableDevices, selectedDeviceId, setSelectedDevice } =
+    useAudioDevices();
 
   const {
     isRecording,
@@ -22,9 +25,6 @@ export const useCall = (callId: Id<"calls">) => {
     isPaused,
     pauseRecording,
     resumeRecording,
-    availableDevices,
-    selectedDeviceId,
-    setSelectedDevice,
   } = useAudioRecording({
     onRecordingStop: useCallback(
       (transcript: string, duration: number) => {
