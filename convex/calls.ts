@@ -1,14 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { auth } from "./auth";
 
 export const createCall = mutation({
   args: {
     title: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       throw new Error("Unauthorized");
     }
 
@@ -17,7 +16,7 @@ export const createCall = mutation({
       status: "recording",
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      userId,
+      userId: identity.subject,
     });
   },
 });
@@ -38,8 +37,8 @@ export const updateCall = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       throw new Error("Unauthorized");
     }
 
@@ -48,7 +47,7 @@ export const updateCall = mutation({
       throw new Error("Call not found");
     }
 
-    if (existingCall.userId !== userId) {
+    if (existingCall.userId !== identity.subject) {
       throw new Error("Forbidden");
     }
 
@@ -81,8 +80,8 @@ export const deleteCall = mutation({
     id: v.id("calls"),
   },
   handler: async (ctx, args) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       throw new Error("Unauthorized");
     }
 
@@ -91,7 +90,7 @@ export const deleteCall = mutation({
       throw new Error("Call not found");
     }
 
-    if (existingCall.userId !== userId) {
+    if (existingCall.userId !== identity.subject) {
       throw new Error("Forbidden");
     }
 
@@ -104,8 +103,8 @@ export const getCall = query({
     id: v.id("calls"),
   },
   handler: async (ctx, args) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       throw new Error("Unauthorized");
     }
 
@@ -114,7 +113,7 @@ export const getCall = query({
       return null;
     }
 
-    if (call.userId !== userId) {
+    if (call.userId !== identity.subject) {
       throw new Error("Forbidden");
     }
 
@@ -124,14 +123,14 @@ export const getCall = query({
 
 export const getCalls = query({
   handler: async (ctx) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       throw new Error("Unauthorized");
     }
 
     return await ctx.db
       .query("calls")
-      .withIndex("by_user_created_at", (q) => q.eq("userId", userId))
+      .withIndex("by_user_created_at", (q) => q.eq("userId", identity.subject))
       .order("desc")
       .collect();
   },
@@ -142,8 +141,8 @@ export const getRecentCalls = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       throw new Error("Unauthorized");
     }
 
@@ -151,7 +150,7 @@ export const getRecentCalls = query({
 
     return await ctx.db
       .query("calls")
-      .withIndex("by_user_created_at", (q) => q.eq("userId", userId))
+      .withIndex("by_user_created_at", (q) => q.eq("userId", identity.subject))
       .order("desc")
       .take(limit);
   },
@@ -159,8 +158,8 @@ export const getRecentCalls = query({
 
 export const generateUploadUrl = mutation({
   handler: async (ctx) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       throw new Error("Unauthorized");
     }
 
@@ -173,8 +172,8 @@ export const getFileUrl = query({
     storageId: v.id("_storage"),
   },
   handler: async (ctx, args) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       throw new Error("Unauthorized");
     }
 

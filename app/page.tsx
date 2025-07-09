@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { SidebarInset } from "@/components/ui/sidebar";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useConvexAuth, useQuery } from "convex/react";
@@ -109,13 +110,13 @@ export default function Home() {
   const recentCalls = calls.slice(0, 3);
 
   return (
-    <div className="flex h-full bg-background">
+    <>
       <CallHistorySidebar
         activeCallId={activeCallId}
         onCallSelect={handleCallSelect}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <SidebarInset>
         <div className="flex-1 overflow-auto">
           <div className="container mx-auto px-6 py-8">
             {/* Header */}
@@ -267,7 +268,7 @@ export default function Home() {
             </Card>
           </div>
         </div>
-      </div>
-    </div>
+      </SidebarInset>
+    </>
   );
 }

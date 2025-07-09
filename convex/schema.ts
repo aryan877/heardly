@@ -1,9 +1,7 @@
-import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  ...authTables,
   calls: defineTable({
     title: v.string(),
     status: v.union(
@@ -17,7 +15,7 @@ export default defineSchema({
     duration: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
-    userId: v.id("users"), // Associate calls with users
+    userId: v.string(), // Clerk user ID (subject from JWT)
   })
     .index("by_created_at", ["createdAt"])
     .index("by_user", ["userId"])

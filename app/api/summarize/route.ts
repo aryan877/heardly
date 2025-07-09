@@ -1,12 +1,12 @@
 import { openai } from "@ai-sdk/openai";
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { streamText } from "ai";
 
 export async function POST(req: Request) {
   try {
-    // Verify authentication
-    const token = await convexAuthNextjsToken();
-    if (!token) {
+    // Verify authentication with Clerk
+    const { userId } = await auth();
+    if (!userId) {
       return new Response("Unauthorized", { status: 401 });
     }
 
