@@ -1,5 +1,16 @@
 "use client";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,6 +31,7 @@ import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "convex/react";
+import { format } from "date-fns";
 import { Clock, Phone, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -36,6 +48,7 @@ export function CallHistorySidebar({
 }: CallHistorySidebarProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  const [callToDelete, setCallToDelete] = useState<Id<"calls"> | null>(null);
   const calls = useQuery(api.calls.list);
   const deleteCall = useMutation(api.calls.remove);
   const { toast } = useToast();
@@ -60,15 +73,15 @@ export function CallHistorySidebar({
     }
   };
 
-  const handleDeleteCall = async (callId: Id<"calls">, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteConfirm = async () => {
+    if (!callToDelete) return;
 
-    if (activeCallId === callId) {
+    if (activeCallId === callToDelete) {
       router.push("/");
     }
 
     try {
-      await deleteCall({ id: callId });
+      await deleteCall({ id: callToDelete });
       toast({
         title: "Call deleted",
         description: "The call has been successfully deleted.",
@@ -79,13 +92,32 @@ export function CallHistorySidebar({
         description: "Failed to delete the call.",
         variant: "destructive",
       });
+    } finally {
+      setCallToDelete(null);
     }
+  };
+
+  const handleDeleteClick = (callId: Id<"calls">, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCallToDelete(callId);
   };
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const formatDateTime = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const dateStr = format(date, "MMM d, yyyy");
+    const timeStr = format(date, "h:mm a");
+    return { dateStr, timeStr };
+  };
+
+  const getCallToDeleteTitle = () => {
+    const call = calls?.find((call) => call._id === callToDelete);
+    return call?.title || "this call";
   };
 
   return (
@@ -126,50 +158,77 @@ export function CallHistorySidebar({
 
           <SidebarGroupContent>
             <SidebarMenu>
-              {filteredCalls.map((call: Doc<"calls">) => (
-                <SidebarMenuItem key={call._id}>
-                  <SidebarMenuButton
-                    onClick={() => onCallSelect(call._id)}
-                    isActive={activeCallId === call._id}
-                    className="w-full p-3 h-auto"
-                  >
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-medium text-sm truncate">
-                          {call.title}
-                        </span>
-                        <Badge
-                          className={`text-xs whitespace-nowrap flex-shrink-0 ${getStatusColor(
-                            call.status
-                          )}`}
-                        >
-                          {call.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="w-3 h-3 flex-shrink-0" />
-                        <span className="truncate">
-                          {new Date(call._creationTime).toLocaleDateString()} at{" "}
-                          {new Date(call._creationTime).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-                      {call.duration && call.duration > 0 && (
-                        <div className="text-xs text-muted-foreground/70 truncate">
-                          Duration: {formatDuration(call.duration)}
+              {filteredCalls.map((call: Doc<"calls">) => {
+                const { dateStr, timeStr } = formatDateTime(call._creationTime);
+
+                return (
+                  <SidebarMenuItem key={call._id}>
+                    <SidebarMenuButton
+                      onClick={() => onCallSelect(call._id)}
+                      isActive={activeCallId === call._id}
+                      className="w-full p-3 h-auto"
+                    >
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-medium text-sm truncate">
+                            {call.title}
+                          </span>
+                          <Badge
+                            className={`text-xs whitespace-nowrap flex-shrink-0 ${getStatusColor(
+                              call.status
+                            )}`}
+                          >
+                            {call.status}
+                          </Badge>
                         </div>
-                      )}
-                    </div>
-                  </SidebarMenuButton>
-                  <SidebarMenuAction
-                    onClick={(e) => handleDeleteCall(call._id, e)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </SidebarMenuAction>
-                </SidebarMenuItem>
-              ))}
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock className="w-3 h-3 flex-shrink-0" />
+                          <span className="truncate">
+                            {dateStr} at {timeStr}
+                          </span>
+                        </div>
+                        {call.duration && call.duration > 0 && (
+                          <div className="text-xs text-muted-foreground/70 truncate">
+                            Duration: {formatDuration(call.duration)}
+                          </div>
+                        )}
+                      </div>
+                    </SidebarMenuButton>
+                    <AlertDialog
+                      open={callToDelete === call._id}
+                      onOpenChange={(open) => !open && setCallToDelete(null)}
+                    >
+                      <AlertDialogTrigger asChild>
+                        <SidebarMenuAction
+                          onClick={(e) => handleDeleteClick(call._id, e)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </SidebarMenuAction>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Call</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "
+                            {getCallToDeleteTitle()}"? This action cannot be
+                            undone and will permanently remove the call
+                            recording, transcript, and any associated data.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={handleDeleteConfirm}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
+                            Delete Call
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
