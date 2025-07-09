@@ -1,15 +1,14 @@
 import {
   convexAuthNextjsMiddleware,
   createRouteMatcher,
-  isAuthenticatedNextjs,
   nextjsMiddlewareRedirect,
 } from "@convex-dev/auth/nextjs/server";
 
 const isPublicRoute = createRouteMatcher(["/auth"]);
 
-export default convexAuthNextjsMiddleware(async (request) => {
-  // Check if user is authenticated
-  const isAuthenticated = await isAuthenticatedNextjs();
+export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
+  // Check if user is authenticated using the new API
+  const isAuthenticated = await convexAuth.isAuthenticated();
 
   // If user is not authenticated and trying to access a protected route
   if (!isPublicRoute(request) && !isAuthenticated) {
