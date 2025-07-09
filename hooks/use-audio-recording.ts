@@ -1,18 +1,20 @@
 "use client";
 
-import { StreamingTranscriber } from "assemblyai";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface AudioRecordingHook {
   isRecording: boolean;
+  isPaused: boolean;
   transcript: string;
   startRecording: () => Promise<void>;
   stopRecording: () => void;
+  pauseRecording: () => void;
+  resumeRecording: () => void;
   duration: number;
 }
 
 interface UseAudioRecordingOptions {
-  onRecordingStop?: (transcript: string) => void;
+  onRecordingStop?: (transcript: string, duration: number) => void;
 }
 
 export const useAudioRecording = (
@@ -20,119 +22,212 @@ export const useAudioRecording = (
 ): AudioRecordingHook => {
   const { onRecordingStop } = options;
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [duration, setDuration] = useState(0);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const transcriberRef = useRef<StreamingTranscriber | null>(null);
-  const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const fullTranscriptRef = useRef<string>("");
+  const socketRef = useRef<WebSocket | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<AudioWorkletNode | null>(null);
 
-  const stopTranscriptionService = useCallback(() => {
-    if (transcriberRef.current) {
-      transcriberRef.current.close();
-      transcriberRef.current = null;
-    }
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+      if (processorRef.current) {
+        processorRef.current.disconnect();
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
   }, []);
 
   const startRecording = useCallback(async () => {
-    if (isRecording) {
-      console.warn("Recording is already in progress.");
-      return;
-    }
-
-    setTranscript("");
-    fullTranscriptRef.current = "";
-
     try {
+      console.log("Attempting to start recording...");
+      setIsRecording(true);
+      setIsPaused(false);
+      setDuration(0);
+      setTranscript("");
+
       const response = await fetch("/api/assemblyai-token");
-      const data = await response.json();
+      const { token } = await response.json();
 
-      if (!data.token) {
-        throw new Error("Failed to get AssemblyAI token");
-      }
+      // Create WebSocket connection to Universal Streaming API v3
+      const socket = new WebSocket(
+        `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&token=${token}`
+      );
 
-      const transcriber = new StreamingTranscriber({
-        token: data.token,
-        sampleRate: 16000,
-      });
+      socketRef.current = socket;
 
-      transcriber.on("open", ({ id, expires_at }) => {
-        console.log(
-          `AssemblyAI session opened with ID: ${id}`,
-          "Expires at:",
-          expires_at
-        );
-      });
+      let runningTranscript = "";
 
-      transcriber.on("error", (error: Error) => {
-        console.error("AssemblyAI Error:", error);
-        stopTranscriptionService();
-      });
+      socket.onopen = async () => {
+        console.log("WebSocket connection opened");
 
-      transcriber.on("close", (code: number, reason: string) => {
-        console.log("AssemblyAI session closed:", code, reason);
-      });
+        // Get microphone access
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: 16000,
+          },
+        });
+        streamRef.current = stream;
 
-      transcriber.on("turn", ({ transcript }) => {
-        if (transcript) {
-          fullTranscriptRef.current = transcript;
-          setTranscript(transcript);
-        }
-      });
+        // Create AudioContext and processor
+        const audioContext = new AudioContext({ sampleRate: 16000 });
+        audioContextRef.current = audioContext;
 
-      await transcriber.connect();
-      transcriberRef.current = transcriber;
+        const source = audioContext.createMediaStreamSource(stream);
+        await audioContext.audioWorklet.addModule("/audio-processor.js");
+        const processor = new AudioWorkletNode(audioContext, "audio-processor");
+        processorRef.current = processor;
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+        processor.port.onmessage = (event) => {
+          if (socket.readyState === WebSocket.OPEN && !isPaused) {
+            console.log("Sending audio data to WebSocket");
+            // Send the raw binary data directly
+            socket.send(event.data.audioData);
+          }
+        };
 
-      mediaRecorderRef.current.ondataavailable = async (event) => {
-        if (event.data.size > 0 && transcriberRef.current) {
-          const buffer = await event.data.arrayBuffer();
-          transcriber.sendAudio(buffer);
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+
+        // Start duration timer
+        const startTime = Date.now();
+        intervalRef.current = setInterval(() => {
+          if (!isPaused) {
+            setDuration(Math.floor((Date.now() - startTime) / 1000));
+          }
+        }, 1000);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("Received message:", data);
+
+          if (data.type === "Begin") {
+            console.log(`Session started: ${data.id}`);
+            return;
+          }
+
+          if (data.type === "Turn") {
+            const currentTranscript = data.transcript || "";
+
+            if (data.end_of_turn) {
+              // Final transcript - add to running transcript
+              runningTranscript +=
+                (runningTranscript ? " " : "") + currentTranscript;
+              setTranscript(runningTranscript);
+              console.log("Final transcript:", runningTranscript);
+            } else {
+              // Partial transcript - show live updates
+              const liveTranscript =
+                runningTranscript +
+                (runningTranscript ? " " : "") +
+                currentTranscript;
+              setTranscript(liveTranscript);
+              console.log("Partial transcript:", liveTranscript);
+            }
+            return;
+          }
+
+          if (data.type === "Termination") {
+            console.log("Session terminated");
+          }
+        } catch (error) {
+          console.error("Error parsing WebSocket message:", error);
         }
       };
 
-      mediaRecorderRef.current.start(250);
+      socket.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
 
-      setIsRecording(true);
-      setDuration(0);
-
-      durationIntervalRef.current = setInterval(() => {
-        setDuration((prev) => prev + 1);
-      }, 1000);
+      socket.onclose = (event) => {
+        console.log("WebSocket closed:", event.code, event.reason);
+        socketRef.current = null;
+      };
     } catch (error) {
       console.error("Error starting recording:", error);
-      stopTranscriptionService();
-      throw error;
-    }
-  }, [isRecording, stopTranscriptionService]);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream
-        .getTracks()
-        .forEach((track) => track.stop());
       setIsRecording(false);
     }
+  }, [isPaused]);
 
-    stopTranscriptionService();
+  const stopRecording = useCallback(() => {
+    setIsRecording(false);
+    setIsPaused(false);
 
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-      durationIntervalRef.current = null;
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
 
-    onRecordingStop?.(fullTranscriptRef.current);
-  }, [isRecording, stopTranscriptionService, onRecordingStop]);
+    if (socketRef.current) {
+      // Send termination message before closing
+      if (socketRef.current.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({ type: "Terminate" }));
+      }
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (onRecordingStop) {
+      onRecordingStop(transcript, duration);
+    }
+  }, [transcript, duration, onRecordingStop]);
+
+  const pauseRecording = useCallback(() => {
+    if (isRecording && !isPaused) {
+      setIsPaused(true);
+      if (audioContextRef.current) {
+        audioContextRef.current.suspend();
+      }
+    }
+  }, [isRecording, isPaused]);
+
+  const resumeRecording = useCallback(() => {
+    if (isRecording && isPaused) {
+      setIsPaused(false);
+      if (audioContextRef.current) {
+        audioContextRef.current.resume();
+      }
+    }
+  }, [isRecording, isPaused]);
 
   return {
     isRecording,
+    isPaused,
     transcript,
-    duration,
     startRecording,
     stopRecording,
+    pauseRecording,
+    resumeRecording,
+    duration,
   };
 };

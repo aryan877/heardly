@@ -133,15 +133,7 @@ export default function Home() {
                       </li>
                     ))}
                   </ul>
-                ) : recentCalls.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Phone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground mb-2">No calls yet</p>
-                    <p className="text-sm text-muted-foreground">
-                      Start your first call to see it here
-                    </p>
-                  </div>
-                ) : (
+                ) : recentCalls.length > 0 ? (
                   <ul className="space-y-4">
                     {recentCalls.map((call: Doc<"calls">) => (
                       <li
@@ -179,6 +171,14 @@ export default function Home() {
                       </li>
                     ))}
                   </ul>
+                ) : (
+                  <div className="text-center py-8">
+                    <Phone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground mb-2">No calls yet</p>
+                    <p className="text-sm text-muted-foreground">
+                      Start your first call to see it here
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </Card>

@@ -3,7 +3,7 @@
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useAISummarization } from "./use-ai-summarization";
 import { useAudioRecording } from "./use-audio-recording";
 
@@ -13,23 +13,34 @@ export const useCall = (callId: Id<"calls">) => {
 
   const { summary, isGenerating, generateSummary } = useAISummarization();
 
-  const handleRecordingStop = async (transcript: string) => {
-    await updateCall({
-      id: callId,
-      status: "completed",
-      duration,
-      transcript,
-    });
-  };
-
-  const { isRecording, transcript, duration, startRecording, stopRecording } =
-    useAudioRecording({ onRecordingStop: handleRecordingStop });
+  const {
+    isRecording,
+    transcript,
+    duration,
+    startRecording,
+    stopRecording,
+    isPaused,
+    pauseRecording,
+    resumeRecording,
+  } = useAudioRecording({
+    onRecordingStop: useCallback(
+      (transcript: string, duration: number) => {
+        updateCall({
+          id: callId,
+          status: "completed",
+          duration,
+          transcript,
+        });
+      },
+      [callId, updateCall]
+    ),
+  });
 
   useEffect(() => {
-    if (transcript) {
-      updateCall({ id: callId, transcript });
+    if (summary && !isGenerating) {
+      updateCall({ id: callId, summary });
     }
-  }, [transcript, callId, updateCall]);
+  }, [summary, isGenerating, callId, updateCall]);
 
   const handleStartRecording = async () => {
     await startRecording();
@@ -40,21 +51,30 @@ export const useCall = (callId: Id<"calls">) => {
     stopRecording();
   };
 
+  const handleTogglePause = () => {
+    if (isPaused) {
+      resumeRecording();
+    } else {
+      pauseRecording();
+    }
+  };
+
   const handleGenerateSummary = async () => {
     if (!call?.transcript) return;
-    const fullSummary = await generateSummary(call.transcript);
-    await updateCall({ id: callId, summary: fullSummary });
+    await generateSummary(call.transcript);
   };
 
   return {
     call,
     isRecording,
-    transcript: call?.transcript || transcript,
+    isPaused,
+    transcript: transcript || call?.transcript,
     duration,
-    summary: call?.summary || summary,
+    summary: summary || call?.summary,
     isGeneratingSummary: isGenerating,
     handleStartRecording,
     handleStopRecording,
     handleGenerateSummary,
+    handleTogglePause,
   };
 };

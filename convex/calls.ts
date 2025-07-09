@@ -36,7 +36,7 @@ export const create = mutation({
 
     return await ctx.db.insert("calls", {
       title,
-      status: "draft", // Changed from "recording" to "draft"
+      status: "draft",
       userId: identity.subject,
     });
   },
